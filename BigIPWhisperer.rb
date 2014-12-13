@@ -79,12 +79,17 @@ class BigIpTalk
         
        result = @bigip['ltm/pool'].post payload.to_json      
     end
-    
+
+
     def get_pool_membership pool_name=None, member_name=None
       result = JSON.parse(@bigip["ltm/pool/#{pool_name}/members/"].get)
       result.each do |k, v|
          if k['items']
-           v.any? { |hash| hash['name'].include?(member_name) }
+           if v.any? { |hash| hash['name'].include?(member_name) }
+               return true
+           else
+               return false
+           end
          end
       end
     end
