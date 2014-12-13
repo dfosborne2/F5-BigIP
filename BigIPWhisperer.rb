@@ -1,8 +1,11 @@
 #!/usr/bin/env ruby
-# author: dfosborne2
+# Author: dfosborne2
+# But with sources/inspiration belonging to devcentral
+# https://devcentral.f5.com/wiki/iControlREST.Ruby-Virtual-Server-and-Pool-Creation.ashx
 
 # Just a collection of methods to provision a BigIP. 
-# More will be added along the way...
+# More will be added along the way for futher provisioning as well as to
+# monitor/administer. Please feel free to fork and add more/make better.
 
 require 'rest-client'
 require 'json'
@@ -61,17 +64,15 @@ class BigIpTalk
       end
     end
  
- 
-    # create/delete methods
-    def make_pool members, pool_name=None, monitor_name=None
+    def make_pool members, pool_name=None, monitor_name=None, lbmethod=None
         # convert member format
         members.collect { |member| { :kind => 'ltm:pool:members', :name => member} }
  
         payload = {
             :kind => 'tm:ltm:pool:poolstate',
             :name => pool_name,
-            :description => "Auto-configured by Chef on #{Time.now.getutc}",
-            :loadBalancingMode => 'least-connections-member',
+            :description => "Auto-configured on #{Time.now.getutc}",
+            :loadBalancingMode => lbmethod,
             :monitor => monitor_name,
             :members => members
         }
