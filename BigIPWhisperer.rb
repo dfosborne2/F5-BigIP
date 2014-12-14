@@ -86,7 +86,6 @@ class BigIpTalk
       result.each do |k, v|
          if k['items']
              return v.any? { |hash| hash['name'].include?(member_name) }
-           end
          end
       end
     end
