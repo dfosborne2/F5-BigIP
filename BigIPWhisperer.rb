@@ -30,7 +30,7 @@ class BigIpTalk
         
     # chk for node:
     def check_node(name)
-      result = @bigip["ltm/node/#{name}"].get{|response, request, result| response }
+      @bigip["ltm/node/#{name}"].get{|response, request, result| response }
     end
     #
     # Make a node
@@ -41,12 +41,12 @@ class BigIpTalk
         :address => address,
         :monitor => 'default'
       }
-      result = @bigip['ltm/node'].post payload.to_json
- 
+      
+      @bigip['ltm/node'].post payload.to_json
     end
  
     def check_pool pool_name
-      result = @bigip["ltm/pool/#{pool_name}"].get{|response, request, result| response }
+      @bigip["ltm/pool/#{pool_name}"].get{|response, request, result| response }
     end
  
     # Check a healthmonitor. In each case a parent is typically supplied even for the
@@ -54,10 +54,9 @@ class BigIpTalk
     # Added conditional in the case that parent is not needed
     def check_health_monitor(monitor=None, parent=None)
       if parent
-        result = @bigip["ltm/monitor/#{parent}/#{monitor}"].get{|response, request, result| response }
-    
+        @bigip["ltm/monitor/#{parent}/#{monitor}"].get{|response, request, result| response }
       else
-        result = @bigip["ltm/monitor/#{monitor}"].get{|response, request, result| response }
+        @bigip["ltm/monitor/#{monitor}"].get{|response, request, result| response }
       end
     end
  
@@ -67,9 +66,9 @@ class BigIpTalk
     # method above
     def create_health_monitor(payload=None, parent=None)
       if parent
-        result = @bigip["ltm/monitor/#{parent}"].post payload.to_json
+        @bigip["ltm/monitor/#{parent}"].post payload.to_json
       else
-        result = @bigip["ltm/monitor"].post payload.to_json
+        @bigip["ltm/monitor"].post payload.to_json
       end
     end
  
@@ -87,7 +86,7 @@ class BigIpTalk
             :members => members
         }
         
-       result = @bigip['ltm/pool'].post payload.to_json      
+       @bigip['ltm/pool'].post payload.to_json      
     end
 
     # Does a node (not a pool member) belong to a given pool?
@@ -107,7 +106,7 @@ class BigIpTalk
               
     def add_node2pool member_name=None, pool_name=None
        payload = { :name => member_name }
-       result = @bigip["ltm/pool/#{pool_name}/members"].post payload.to_json
+       @bigip["ltm/pool/#{pool_name}/members"].post payload.to_json
      end        
   
 #End class  
