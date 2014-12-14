@@ -27,12 +27,12 @@ class BigIpTalk
     end
         
     # chk for node:
-    def check_node name
+    def check_node(name)
       result = @bigip["ltm/node/#{name}"].get{|response, request, result| response }
     end
     #
     # Make a node
-    def make_node name, address
+    def make_node(name, address)
       payload = {
         :kind => 'tm:ltm:node',
         :name => name,
@@ -47,7 +47,7 @@ class BigIpTalk
       result = @bigip["ltm/pool/#{pool_name}"].get{|response, request, result| response }
     end
  
-    def check_health_monitor monitor=None, parent=None
+    def check_health_monitor(monitor=None, parent=None)
       if parent
         result = @bigip["ltm/monitor/#{parent}/#{monitor}"].get{|response, request, result| response }
     
@@ -56,7 +56,7 @@ class BigIpTalk
       end
     end
  
-    def make_health_monitor payload=None, parent=None
+    def make_health_monitor(payload=None, parent=None)
       if parent
         result = @bigip["ltm/monitor/#{parent}"].post payload.to_json
       else
@@ -64,7 +64,7 @@ class BigIpTalk
       end
     end
  
-    def make_pool members, pool_name=None, monitor_name=None, lbmethod=None
+    def make_pool(members, pool_name=None, monitor_name=None, lbmethod=None)
         # convert member format
         members.collect { |member| { :kind => 'ltm:pool:members', :name => member} }
  
@@ -81,14 +81,11 @@ class BigIpTalk
     end
 
 
-    def get_pool_membership pool_name=None, member_name=None
+    def node_is_member?(pool_name=None, member_name=None)
       result = JSON.parse(@bigip["ltm/pool/#{pool_name}/members/"].get)
       result.each do |k, v|
          if k['items']
-           if v.any? { |hash| hash['name'].include?(member_name) }
-               return true
-           else
-               return false
+             return v.any? { |hash| hash['name'].include?(member_name) }
            end
          end
       end
