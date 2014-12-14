@@ -47,6 +47,9 @@ class BigIpTalk
       result = @bigip["ltm/pool/#{pool_name}"].get{|response, request, result| response }
     end
  
+    # Check a healthmonitor. In each case a parent is typically supplied even for the
+    # case of builtins like 'http'. So args would be: (monitor='http, parent='http')
+    # Added conditional in the case that parent is not needed
     def check_health_monitor(monitor=None, parent=None)
       if parent
         result = @bigip["ltm/monitor/#{parent}/#{monitor}"].get{|response, request, result| response }
@@ -56,7 +59,11 @@ class BigIpTalk
       end
     end
  
-    def make_health_monitor(payload=None, parent=None)
+    # You need to supply the health monitor payload. Hint: You can create the
+    # healthmonitor you wish by hand and then list it out with the check_health_monitor 
+    # method above. You could check a builtin like http. See comments for the create
+    # method above
+    def create_health_monitor(payload=None, parent=None)
       if parent
         result = @bigip["ltm/monitor/#{parent}"].post payload.to_json
       else
@@ -64,7 +71,8 @@ class BigIpTalk
       end
     end
  
-    def make_pool(members, pool_name=None, monitor_name=None, lbmethod=None)
+    # Create a pool. lbmethod is one of the builtins on your given BigIP version
+    def create_pool(members, pool_name=None, monitor_name=None, lbmethod=None)
         # convert member format
         members.collect { |member| { :kind => 'ltm:pool:members', :name => member} }
  
@@ -80,7 +88,11 @@ class BigIpTalk
        result = @bigip['ltm/pool'].post payload.to_json      
     end
 
-
+    # Does a node (not a pool member) belong to a given pool?
+    # Assumes that pool_name supplied actually exists, otherwise
+    # rest-client exception handling takes over and should raise a 
+    # 404 error
+    
     def node_is_member?(pool_name=None, member_name=None)
       result = JSON.parse(@bigip["ltm/pool/#{pool_name}/members/"].get)
       result.each do |k, v|
