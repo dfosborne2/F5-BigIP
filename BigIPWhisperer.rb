@@ -1,7 +1,9 @@
 #!/usr/bin/env ruby
 # Author: dfosborne2
-# But with sources/inspiration belonging to devcentral
+# Sources/inspiration belonging to devcentral
 # https://devcentral.f5.com/wiki/iControlREST.Ruby-Virtual-Server-and-Pool-Creation.ashx
+
+## Known to work with at least BigIP LTM 11.5.1 ##
 
 # Just a collection of methods to provision a BigIP. 
 # More will be added along the way for futher provisioning as well as to
