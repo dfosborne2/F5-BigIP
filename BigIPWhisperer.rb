@@ -22,7 +22,7 @@ class BigIpTalk
       )
     end
     
-    # post changes made
+    # Commit changes
     def save
       payload =  {:command => "save"}
       result = @bigip["sys/config"].post payload.to_json
@@ -44,8 +44,8 @@ class BigIpTalk
       
       @bigip['ltm/node'].post payload.to_json
     end
- 
-    def check_pool pool_name
+    
+    def check_pool(pool_name)
       @bigip["ltm/pool/#{pool_name}"].get{|response, request, result| response }
     end
  
