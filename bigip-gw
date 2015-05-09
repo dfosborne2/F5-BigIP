@@ -129,11 +129,7 @@ check_public_input()
 # $2 = iface
 # $3 = fwmark integer
 if ! (iptables -t mangle -L INPUT -v |grep ${1}|grep ${2} |grep "MARK set 0x${3}" > /dev/null); then
-  #iptables -t mangle -A INPUT -i ${2} -m conntrack --ctstate NEW,ESTABLISHED,RELATED -m iprange --src-range ${1} -j MARK --set-mark ${3}
-  #iptables -t mangle -A PREROUTING -i ${2} -m conntrack --ctstate NEW,RELATED,ESTABLISHED -m iprange --src-range ${1} -j MARK --set-mark ${3}
-  #iptables -t mangle -A OUTPUT -o ${2} -m conntrack --ctstate RELATED,ESTABLISHED -m iprange --src-range ${1} -j MARK --set-mark ${3}
   iptables -t mangle -A INPUT -i ${2} -m conntrack --ctstate NEW -m iprange --src-range ${1} -j MARK --set-mark ${3}
-  #iptables -t mangle -A PREROUTING -i ${2} -m conntrack --ctstate NEW,RELATED,ESTABLISHED -m iprange --src-range ${1} -j MARK --set-mark ${3}
 fi
 
 }
@@ -187,7 +183,6 @@ fi
 check_save_mark()
 {
 if ! (iptables -L INPUT -t mangle -v |grep "CONNMARK save" > /dev/null); then
-  #iptables -t mangle -A INPUT -i ${1} -j CONNMARK --save-mark
   iptables -t mangle -A INPUT -j CONNMARK --save-mark
 fi
 }
@@ -290,8 +285,6 @@ for floater in ${BIGIP_FLOATERS[@]}; do
            # Clean out the route table
            check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
 
-           # Flush route cache to ensure new routes are immediately active
-           ip route flush cache
 
          else
            # Define the table for the route
@@ -340,17 +333,11 @@ start()
  check_save_mark && \
  ip route flush cache &&
  service iptables save
-# echo_success || \
-# echo_failure
 }
 
 stop(){
  route_manager del && \
  ip route flush cache
- #route_manager del && \
- #service iptables save
- #echo_success || \
- #echo_failure
 }
 
 
