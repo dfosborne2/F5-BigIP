@@ -285,7 +285,7 @@ for floater in ${BIGIP_FLOATERS[@]}; do
            # Clean out the route table
            check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
 
-
+         # If $ACTION is to "add", then let's add the stuff.
          else
            # Define the table for the route
            check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
