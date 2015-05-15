@@ -4,12 +4,16 @@
 # description: set routing for BigIP traffic on any acceptable interface. 
 #              removes the need to SNAT a BigIP virtual (with assumptions below)
 #
-# author: David Osborne
+# author: David Osborne <dfosborne2>
 # 
 # INSTRUCTIONS: 
 # 
 #  Place in /etc/init.d of host you wish to add as a node to 
 #  your BigIP loadbalancer.
+# 
+#  Enable it:
+#
+#  chkconfig <script_name> on
 #  
 #  To start it:
 #
@@ -34,6 +38,8 @@
 #  /etc/sysconfig/bigip-gw
 #
 # Valid "OPTIONS" are 
+#  all ifaces: "all"
+#    -or-
 #  a specific iface ex:  "eth3"
 #    -or-
 #  ""  (blank) - whice will use the iface which corresponds to
@@ -41,16 +47,15 @@
 #
 #
 # TO DO: 
-# 1. Ability to apply to all interfaces
-# 2. Ability to route to a self IP not in your 
+# 1. Ability to route to a self IP not in your 
 #    broadcast via the gateway used in the BigIP route
 #    (in the BigIP UI: Network -> Routes)
-# 3. Persist rules/routes across network restarts. 
+# 2. Persist rules/routes across network restarts. 
 #    Gets tricky when configuration automation is also 
 #    part of the picture.
 
 # ****** ASSUMPTIONS ******
-# Assumes your using this for IPv4 traffic
+# Assumes you're using this for IPv4 traffic
 # Makes assumptions on the PUBLIC IPv4 ranges (multicast being the oddball)
 # Please locate the PUB_IPV4_SPACE variable below and tweak
 
@@ -62,23 +67,20 @@ export PATH
 # source function library
 . /etc/rc.d/init.d/functions
 
-# source sysconfig file
+# Set any global vars here
 
+RT_TABLES=/etc/iproute2/rt_tables
 SYS_CONFIG="/etc/sysconfig/bigip-gw"
+
+
+# source sysconfig file
 
 if [ -f ${SYS_CONFIG} ]; then
   source ${SYS_CONFIG}
 else
-  OPTIONS=""
+  OPTIONS="all"
 fi
 
-
-# Check 
-
-
-# Set any global vars here
-
-RT_TABLES=/etc/iproute2/rt_tables
 
 
 # Support functions here
@@ -110,15 +112,15 @@ check_mangle()
 # Make sure mark exists before routing happens
 # The first handles incoming packets
 
-if ! (iptables -t mangle -L PREROUTING -v|grep "CONNMARK restore" |grep ${1} > /dev/null); then
-  iptables -t mangle -A PREROUTING -i ${1} -j CONNMARK --restore-mark
-  
+if ! (iptables -t mangle -L PREROUTING -v|grep "CONNMARK restore" > /dev/null); then
+  iptables -t mangle -A PREROUTING  -j CONNMARK --restore-mark
 fi
 
 # The second handles outgoing packets
-if ! (iptables -t mangle -L OUTPUT -v |grep "CONNMARK restore"|grep ${1}  > /dev/null); then
-  iptables -t mangle -A OUTPUT -o ${1} -j CONNMARK --restore-mark
+if ! (iptables -t mangle -L OUTPUT -v |grep "CONNMARK restore"  > /dev/null); then
+  iptables -t mangle -A OUTPUT -j CONNMARK --restore-mark
 fi
+
 }
 
 
@@ -129,7 +131,7 @@ check_public_input()
 # $2 = iface
 # $3 = fwmark integer
 if ! (iptables -t mangle -L INPUT -v |grep ${1}|grep ${2} |grep "MARK set 0x${3}" > /dev/null); then
-  iptables -t mangle -A INPUT -i ${2} -m conntrack --ctstate NEW -m iprange --src-range ${1} -j MARK --set-mark ${3}
+  iptables -t mangle -A INPUT -i ${2} -m conntrack --ctstate NEW,ESTABLISHED,RELATED -m iprange --src-range ${1} -j MARK --set-mark 0x${3}
 fi
 
 }
@@ -164,27 +166,29 @@ check_route()
 # $3 : The gateway ip address you wish to use
 # $4 : The interface to which you wish to apply the route
 # $5 : The route metric (priority)
+# $6 : The ip address 
 
 
 if [ ${1} == "add" ]; then
   if ! (ip route show table 0 |grep ${2}|grep ${3} |grep ${4} > /dev/null); then
-    #ip route ${1} table ${2} default via ${3} dev ${4} metric ${5}
     ip route ${1} default via ${3} dev ${4} table ${2} metric ${5}  
+
   fi
 else
   ip route ${1} default table ${2} via ${3} dev ${4} metric ${5}
 fi
-
-#ip route add default via 192.168.0.1 dev wlan0 table wlan-route
 
 }
 
 
 check_save_mark()
 {
+# Save your packet mark.
+
 if ! (iptables -L INPUT -t mangle -v |grep "CONNMARK save" > /dev/null); then
   iptables -t mangle -A INPUT -j CONNMARK --save-mark
 fi
+
 }
 
 
@@ -221,16 +225,13 @@ ACTION=${1}
 # these vars are not set here!)
 # Set some vars
 
-# 11.0.0.0-126.255.255.255 128.0.0.0-172.15.255.255
 
 ROUTE_METRIC=100
 MARK_COUNT=1
 TABLE_METRIC=201
 BIGIP_FLOATERS=(10.125.44.52/26 10.124.80.170/26 10.125.44.70/28)
-PUB_IPV4_SPACE=(0.0.0.0-9.255.255.255 11.0.0.0-168.255.255.255 170.0.0.0-172.15.255.255\ 
-                172.33.0.0-192.167.255.255 192.169.0.0-223.255.255.255 \
-                240.0.0.0-254.255.255.255)
-
+PUB_IPV4_SPACE=(0.0.0.0-9.255.255.255 11.0.0.0-172.15.255.255\ 
+                172.33.0.0-192.167.255.255 192.169.0.0-254.255.255.255)
 
 # Get all the ifaces on the box
 # /etc/sysconfig/bigip-gw is 
@@ -294,26 +295,22 @@ for floater in ${BIGIP_FLOATERS[@]}; do
            check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
            check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
 
-           # Flush route cache to ensure new routes are immediately active
-  #         ip route flush cache
-
-           # Check and apply mangle if need be, if ACTION is del just flush mangle rules
-           check_mangle ${iface} ${MARK_COUNT}
 
            # Now check to see if the packets have been mark and mark if not
            for public_addr in ${PUB_IPV4_SPACE[@]}; do
              check_public_input ${public_addr} ${iface} ${MARK_COUNT}
            done
 
-           # Check and apply mangle if need be, if ACTION is del just flush mangle rules
-           #check_mangle ${iface}
-      
-           #check_save_mark ${iface}
  
          # Disable reverse path filtering 
          echo 0 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
+         echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
+
+         # All ip forwarding 
+
          echo 1 > /proc/sys/net/ipv4/ip_forward 
          fi
+
          # Bump your counters
          MARK_COUNT=$((${MARK_COUNT} + 1))
          ROUTE_METRIC=$((${ROUTE_METRIC} + 10))
@@ -324,12 +321,10 @@ for floater in ${BIGIP_FLOATERS[@]}; do
 }
 
 
-# TODO: The echo_succuess and echo_failure functions
-#       dont really work in the current writeup. 
-
 start()
 {
  route_manager add && \
+ check_mangle && \
  check_save_mark && \
  ip route flush cache &&
  service iptables save
