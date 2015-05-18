@@ -71,6 +71,9 @@ export PATH
 
 RT_TABLES=/etc/iproute2/rt_tables
 SYS_CONFIG="/etc/sysconfig/bigip-gw"
+BIGIP_FLOATERS=(10.125.44.52/26 10.124.80.170/26 10.125.44.70/28)
+PUB_IPV4_SPACE=(0.0.0.0-9.255.255.255 11.0.0.0-172.15.255.255\ 
+                172.33.0.0-192.167.255.255 192.169.0.0-254.255.255.255)
 
 
 # source sysconfig file
@@ -105,10 +108,6 @@ ipcalc -b ${1} |sed "s|BROADCAST=||g"
 
 check_mangle()
 { 
-# One input variable required.
-# $1 = interface
-# $2 = fwmark integer
-
 # Make sure mark exists before routing happens
 # The first handles incoming packets
 
@@ -229,9 +228,7 @@ ACTION=${1}
 ROUTE_METRIC=100
 MARK_COUNT=1
 TABLE_METRIC=201
-BIGIP_FLOATERS=(10.125.44.52/26 10.124.80.170/26 10.125.44.70/28)
-PUB_IPV4_SPACE=(0.0.0.0-9.255.255.255 11.0.0.0-172.15.255.255\ 
-                172.33.0.0-192.167.255.255 192.169.0.0-254.255.255.255)
+
 
 # Get all the ifaces on the box
 # /etc/sysconfig/bigip-gw is 
