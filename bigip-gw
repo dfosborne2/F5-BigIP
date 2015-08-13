@@ -57,6 +57,7 @@
 # By default, the "all" option is selected. Should a 
 # /etc/sysconfig/bigip-gw not exist.
 
+
 # ** ABOUT VARIABLES **
 # Typically BIGIP_FLOATERS and MAC_MASQUERADE are the only 
 # variables you'll need to setup. 
@@ -75,11 +76,10 @@ export PATH
 
 # Set any global vars here
 
-RT_TABLES=/etc/iproute2/rt_tables
-SYS_CONFIG="/etc/sysconfig/bigip-gw"
 BIGIP_FLOATERS=(<%= @bigip_floaters %>)
 MAC_MASQUERADE="<%= @mac_masquerade %>"
-
+RT_TABLES=/etc/iproute2/rt_tables
+SYS_CONFIG="/etc/sysconfig/bigip-gw"
 
 # source sysconfig file
 
@@ -200,10 +200,17 @@ fi
 
 check_save_mark()
 {
-# Save your packet mark.
+# 1 input variable require
+#
+# $1 : The action (add -or- del)
 
-if ! (iptables -L INPUT -t mangle -v |grep "CONNMARK save" > /dev/null); then
-  iptables -t mangle -A INPUT -j CONNMARK --save-mark
+# Save your packet mark.
+if [ ${1} == "add" ]; then
+  if ! (iptables -L INPUT -t mangle -v |grep "CONNMARK save" > /dev/null); then
+    iptables -t mangle -A INPUT -j CONNMARK --save-mark
+  fi
+else
+  iptables -t mangle -D INPUT -j CONNMARK --save-mark
 fi
 
 }
@@ -313,7 +320,7 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
 
 
-             # Now mark all packets 
+             # Now save  mark all packets 
              check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT}
 
            fi
@@ -333,13 +340,14 @@ start()
 {
  route_manager add && \
  check_mangle && \
- check_save_mark && \
+ check_save_mark add && \
  ip route flush cache &&
  service iptables save
 }
 
 stop(){
  route_manager del && \
+ check_save_mark del && \
  ip route flush cache
 }
 
