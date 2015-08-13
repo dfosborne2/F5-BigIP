@@ -17,15 +17,6 @@
 #
 # INSTRUCTIONS: 
 # 
-# Editable variables in this script are:
-#     BIGIP_FLOATERS
-#          and
-#     MAC_MASQUERADE
-# 
-# If using chef, the templating language already in place. If not using chef, 
-# just replace with your MAC and SELF-IP list ( in CIDR notation: 10.0.1.3/24)
-#
-#
 #  Place in /etc/init.d of host you wish to add as a node to 
 #  your BigIP loadbalancer.
 # 
@@ -79,6 +70,8 @@ export PATH
 
 RT_TABLES=/etc/iproute2/rt_tables
 SYS_CONFIG="/etc/sysconfig/bigip-gw"
+BIGIP_FLOATERS=(<%= @bigip_floaters %>)
+MAC_MASQUERADE="<%= @mac_masquerade %>"
 
 
 # source sysconfig file
@@ -134,12 +127,22 @@ fi
 
 check_layer2_mac_rule()
 {
-# Two input variables required
-# $1 = fwmark integer
+# Four input variables required
+# $1 = action (add -or  del)
 # $2 = mac masquerade address
-if ! (iptables -t mangle -L INPUT -v |grep -i ${2}  |grep "0x${1}" > /dev/null); then
-  iptables -t mangle -A INPUT -m mac --mac-source ${2} -j MARK --set-mark 0x${1}
+# $3 = comment for rule
+# $4 = fwmark integer
+
+# If action to add, then check for it and add if missing.
+# else delete the rule when action is "not add"
+if [ ${1} == "add" ]; then
+  if ! (iptables -t mangle -L INPUT -v |grep -i ${2}|grep "${3}"  |grep "0x${4}" > /dev/null); then
+    iptables -t mangle -A INPUT -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+  fi
+else
+  iptables -t mangle -D INPUT -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
 fi
+  
 
 }
 
@@ -236,8 +239,6 @@ ACTION=${1}
 ROUTE_METRIC=100
 MARK_COUNT=1
 TABLE_METRIC=201
-BIGIP_FLOATERS=(<%= @bigip_floaters %>)
-MAC_MASQUERADE="<%= @mac_masquerade %>"
 
 
 # Get all the ifaces on the box
@@ -289,8 +290,8 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
              check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
 
-             # Just flush all mangle rules
-             iptables -t mangle -F
+             # Flush corresponding mangle rule
+             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT}
 
              # Clean out the route table
              check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
@@ -305,8 +306,8 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
 
 
-             # Now check to see if the packets have been marked and mark if not
-             check_layer2_mac_rule  ${MARK_COUNT} "${MAC_MASQUERADE}"
+             # Now mark all packets 
+             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT}
 
            fi
 
