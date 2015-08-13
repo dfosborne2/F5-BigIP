@@ -1,13 +1,31 @@
 #!/bin/bash
 #
 # chkconfig: 345 90 50
+# name: bigip-gw
 # description: set routing for BigIP traffic on any acceptable interface. 
-#              removes the need to SNAT a BigIP virtual (with assumptions below)
+#              removes the need to SNAT a BigIP virtual.
 #
-# author: David Osborne <dfosborne2>
-# 
+# author: David Osborne <https://github.com/dfosborne2> 
+#                        dosborne@us.ibm.com
+# license: GNU General Public License v2, June 1991, 
+#          Beer licensing also in effect here
+#
+# warranty: None...
+#
+#
+# *** NOTICE ***
+#
 # INSTRUCTIONS: 
 # 
+# Editable variables in this script are:
+#     BIGIP_FLOATERS
+#          and
+#     MAC_MASQUERADE
+# 
+# If using chef, the templating language already in place. If not using chef, 
+# just replace with your MAC and SELF-IP list ( in CIDR notation: 10.0.1.3/24)
+#
+#
 #  Place in /etc/init.d of host you wish to add as a node to 
 #  your BigIP loadbalancer.
 # 
@@ -45,19 +63,9 @@
 #  ""  (blank) - whice will use the iface which corresponds to
 #                the FQDN of the host.
 #
-#
-# TO DO: 
-# 1. Ability to route to a self IP not in your 
-#    broadcast via the gateway used in the BigIP route
-#    (in the BigIP UI: Network -> Routes)
-# 2. Persist rules/routes across network restarts. 
-#    Gets tricky when configuration automation is also 
-#    part of the picture.
+# By default, the "all" option is selected. Should a 
+# /etc/sysconfig/bigip-gw not exist.
 
-# ****** ASSUMPTIONS ******
-# Assumes you're using this for IPv4 traffic
-# Makes assumptions on the PUBLIC IPv4 ranges (multicast being the oddball)
-# Please locate the PUB_IPV4_SPACE variable below and tweak
 
 
 # Setup yer PATH!
@@ -71,9 +79,6 @@ export PATH
 
 RT_TABLES=/etc/iproute2/rt_tables
 SYS_CONFIG="/etc/sysconfig/bigip-gw"
-BIGIP_FLOATERS=(10.125.44.52/26 10.124.80.170/26 10.125.44.70/28)
-PUB_IPV4_SPACE=(0.0.0.0-9.255.255.255 11.0.0.0-172.15.255.255\ 
-                172.33.0.0-192.167.255.255 192.169.0.0-254.255.255.255)
 
 
 # source sysconfig file
@@ -108,6 +113,10 @@ ipcalc -b ${1} |sed "s|BROADCAST=||g"
 
 check_mangle()
 { 
+# One input variable required.
+# $1 = interface
+# $2 = fwmark integer
+
 # Make sure mark exists before routing happens
 # The first handles incoming packets
 
@@ -123,14 +132,13 @@ fi
 }
 
 
-check_public_input()
+check_layer2_mac_rule()
 {
-# Three input variables required
-# $1 = public ip range
-# $2 = iface
-# $3 = fwmark integer
-if ! (iptables -t mangle -L INPUT -v |grep ${1}|grep ${2} |grep "MARK set 0x${3}" > /dev/null); then
-  iptables -t mangle -A INPUT -i ${2} -m conntrack --ctstate NEW,ESTABLISHED,RELATED -m iprange --src-range ${1} -j MARK --set-mark 0x${3}
+# Two input variables required
+# $1 = fwmark integer
+# $2 = mac masquerade address
+if ! (iptables -t mangle -L INPUT -v |grep -i ${2}  |grep "0x${1}" > /dev/null); then
+  iptables -t mangle -A INPUT -m mac --mac-source ${2} -j MARK --set-mark 0x${1}
 fi
 
 }
@@ -228,6 +236,8 @@ ACTION=${1}
 ROUTE_METRIC=100
 MARK_COUNT=1
 TABLE_METRIC=201
+BIGIP_FLOATERS=(<%= @bigip_floaters %>)
+MAC_MASQUERADE="<%= @mac_masquerade %>"
 
 
 # Get all the ifaces on the box
@@ -257,61 +267,54 @@ for floater in ${BIGIP_FLOATERS[@]}; do
    for iface in ${IFACE_ARRAY[@]}; do
        APPLIED=no
        ip_addr=$(ip -o addr show ${iface}|grep -v secondary | awk '/inet /{print substr($4,0)}')
-       BIGIP_BCAST=$(get_bcast ${floater})
-       HOST_BCAST=$(get_bcast ${ip_addr})
-       if [ $HOST_BCAST == $BIGIP_BCAST ]; then
-         echo "$floater is the BIG-IP transit gateway for local address: ${ip_addr}. ${ACTION} rules/routes..."
-         APPLIED=yes
-       fi
-       # If we match an iface's address broadcast to a floater's broadcast, let's
-       # build or tear domw some rules/routes
+       if [ ! -z $ip_addr ]
+         then
+           BIGIP_BCAST=$(get_bcast ${floater})
+           HOST_BCAST=$(get_bcast ${ip_addr})
+           if [ $HOST_BCAST == $BIGIP_BCAST ]; then
+             echo "Action: ${ACTION} rules/routes  $floater is the BIG-IP transit gateway for local address: ${ip_addr}."
+             APPLIED=yes
+           fi
+         # If we match an iface's address broadcast to a floater's broadcast, let's
+         # build or tear domw some rules/routes
 
-       if [ $APPLIED == "yes" ]; then
-         
-         # Set the big ip floater as the gateway in this instance.
-         BIGIP_GW=$(echo ${floater}|sed "s|/.*$||g")
-         BIGIP_GW_NAME="bigip_gw_$(echo ${BIGIP_GW} |sed 's|\.|-|g')"
+         if [ $APPLIED == "yes" ]; then
+           
+           # Set the big ip floater as the gateway in this instance.
+           BIGIP_GW=$(echo ${floater}|sed "s|/.*$||g")
+           BIGIP_GW_NAME="bigip_gw_$(echo ${BIGIP_GW} |sed 's|\.|-|g')"
 
-         if [ ${ACTION} == "del" ]; then
-           # Delete rule and route
-           check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
-           check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
+           if [ ${ACTION} == "del" ]; then
+             # Delete rule and route
+             check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
+             check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
 
-           # Just flush all mangle rules
-           iptables -t mangle -F
+             # Just flush all mangle rules
+             iptables -t mangle -F
 
-           # Clean out the route table
-           check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
+             # Clean out the route table
+             check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
 
-         # If $ACTION is to "add", then let's add the stuff.
-         else
-           # Define the table for the route
-           check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
+           # If $ACTION is to "add", then let's add the stuff.
+           else
+             # Define the table for the route
+             check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
 
-           # Add route and rule
-           check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
-           check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
+             # Add route and rule
+             check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
+             check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
 
 
-           # Now check to see if the packets have been mark and mark if not
-           for public_addr in ${PUB_IPV4_SPACE[@]}; do
-             check_public_input ${public_addr} ${iface} ${MARK_COUNT}
-           done
+             # Now check to see if the packets have been marked and mark if not
+             check_layer2_mac_rule  ${MARK_COUNT} "${MAC_MASQUERADE}"
 
- 
-         # Disable reverse path filtering 
-         echo 0 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
-         echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
+           fi
 
-         # All ip forwarding 
-
-         echo 1 > /proc/sys/net/ipv4/ip_forward 
+           # Bump your counters
+           MARK_COUNT=$((${MARK_COUNT} + 1))
+           ROUTE_METRIC=$((${ROUTE_METRIC} + 10))
+           TABLE_METRIC=$((${TABLE_METRIC} + 1))
          fi
-
-         # Bump your counters
-         MARK_COUNT=$((${MARK_COUNT} + 1))
-         ROUTE_METRIC=$((${ROUTE_METRIC} + 10))
-         TABLE_METRIC=$((${TABLE_METRIC} + 1))
        fi
      done
   done
