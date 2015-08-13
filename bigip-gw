@@ -57,7 +57,14 @@
 # By default, the "all" option is selected. Should a 
 # /etc/sysconfig/bigip-gw not exist.
 
+# ** ABOUT VARIABLES **
+# Typically BIGIP_FLOATERS and MAC_MASQUERADE are the only 
+# variables you'll need to setup. 
+# By default, the vars are are assumed to be derived 
+# by chef - tailor to your needs.
 
+
+# Lets get started.
 
 # Setup yer PATH!
 PATH=:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
