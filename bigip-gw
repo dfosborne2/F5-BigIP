@@ -40,13 +40,16 @@
 # to the broadcast address of each BigIP floating address
 # If they match, apply the routes and rules
 #
-# An additional sysconfig file can be supplied as well
+#
+#  THE SYSCONFIG FILE 
+#
+# A sysconfig file must be supplied as well
 # to specify which interface you want to apply the bigip as a 
 # conditional gateway:
 #
 #  /etc/sysconfig/bigip-gw
 #
-# Valid "OPTIONS" are 
+# Valid "IFACE_SELECTION" are 
 #  all ifaces: "all"
 #    -or-
 #  a specific iface ex:  "eth3"
@@ -56,13 +59,17 @@
 #
 # By default, the "all" option is selected. Should a 
 # /etc/sysconfig/bigip-gw not exist.
-
-
-# ** ABOUT VARIABLES **
-# Typically BIGIP_FLOATERS and MAC_MASQUERADE are the only 
+# 
+# ADDITIONAL sysconfig vars::
+#
+# Currently, BIGIP_FLOATERS and MAC_MASQUERADE are the only 
 # variables you'll need to setup. 
+#
 # By default, the vars are are assumed to be derived 
 # by chef - tailor to your needs.
+#
+# The RT_TABLES sysconfig entry must be /etc/iproute2/rt_tables. No
+# need to change/modify it for a typical usage of this script.
 
 
 # Lets get started.
@@ -74,19 +81,14 @@ export PATH
 # source function library
 . /etc/rc.d/init.d/functions
 
-# Set any global vars here
-
-BIGIP_FLOATERS=(<%= @bigip_floaters %>)
-MAC_MASQUERADE="<%= @mac_masquerade %>"
-RT_TABLES=/etc/iproute2/rt_tables
-SYS_CONFIG="/etc/sysconfig/bigip-gw"
-
 # source sysconfig file
+SYS_CONFIG="/etc/sysconfig/bigip-gw"
 
 if [ -f ${SYS_CONFIG} ]; then
   source ${SYS_CONFIG}
 else
-  OPTIONS="all"
+  echo " *** CRITICAL - ${SYS_CONFIG} file missing. Please read over documentation inside this script! ***"
+  exit 1
 fi
 
 
@@ -258,7 +260,7 @@ TABLE_METRIC=201
 # Get all the ifaces on the box
 # /etc/sysconfig/bigip-gw is 
 # sourced at the top of the file.
-# Valid "OPTIONS" are 
+# Valid "IFACE_SELECTION" are 
 #  "all" 
 #    -or-
 #  a specific iface ex:  "eth3"
@@ -266,15 +268,21 @@ TABLE_METRIC=201
 #  ""  (blank) - whice will use the iface which corresponds to
 #                the FQDN of the host.
 
-if [ "${OPTIONS}" == "all" ]; then
+# Also configured in /etc/sysconfig/bigip-gw are
+# BIGIP_FLOATERS and MAC_MASQUERADE. 
+# These two must configured and populated or the
+# the script will bail.
+
+
+if [ "${IFACE_SELECTION}" == "all" ]; then
    IFACE_ARRAY=($(ifconfig -s |egrep -v '^lo|^Iface'|awk '{print $1}'))
 
-elif [ -z "${OPTIONS}" ]; then
+elif [ -z "${IFACE_SELECTION}" ]; then
   MY_IP=$(dig ${HOSTNAME} +short)
   IFACE_ARRAY=($(ip -o addr |grep ${MY_IP} |awk '{print $2}'))
 
 else
-  IFACE_ARRAY=($(ip -o addr |egrep ${OPTIONS} |awk '{print $2}'))
+  IFACE_ARRAY=($(ip -o addr |egrep ${IFACE_SELECTION} |awk '{print $2}'))
 fi
 
 
