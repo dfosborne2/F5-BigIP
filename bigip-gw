@@ -1,4 +1,4 @@
-#!/bin/bash
+i#!/bin/bash
 #
 # chkconfig: 345 90 50
 # name: bigip-gw
@@ -116,21 +116,25 @@ ipcalc -b ${1} |sed "s|BROADCAST=||g"
 check_mangle()
 { 
 # One input variable required.
-# $1 = interface
-# $2 = fwmark integer
+# $1 = action (add -or- del)
 
 # Make sure mark exists before routing happens
 # The first handles incoming packets
 
-if ! (iptables -t mangle -L PREROUTING -v|grep "CONNMARK restore" > /dev/null); then
-  iptables -t mangle -A PREROUTING  -j CONNMARK --restore-mark
-fi
+if [ ${1} == "add" ]; then
 
-# The second handles outgoing packets
-if ! (iptables -t mangle -L OUTPUT -v |grep "CONNMARK restore"  > /dev/null); then
-  iptables -t mangle -A OUTPUT -j CONNMARK --restore-mark
-fi
+  if ! (iptables -t mangle -L PREROUTING -v|grep "CONNMARK restore" > /dev/null); then
+    iptables -t mangle -A PREROUTING  -j CONNMARK --restore-mark
+  fi
 
+  # The second handles outgoing packets
+  if ! (iptables -t mangle -L OUTPUT -v |grep "CONNMARK restore"  > /dev/null); then
+    iptables -t mangle -A OUTPUT -j CONNMARK --restore-mark
+  fi
+else
+  iptables -t mangle -D PREROUTING  -j CONNMARK --restore-mark
+  iptables -t mangle -D OUTPUT -j CONNMARK --restore-mark
+fi
 }
 
 
@@ -146,10 +150,16 @@ check_layer2_mac_rule()
 # else delete the rule when action is "not add"
 if [ ${1} == "add" ]; then
   if ! (iptables -t mangle -L INPUT -v |grep -i ${2}|grep "${3}"  |grep "0x${4}" > /dev/null); then
-    iptables -t mangle -A INPUT -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+
+    iptables -t mangle -A INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED \
+    -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+
   fi
 else
-  iptables -t mangle -D INPUT -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+
+    iptables -t mangle -D INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED \
+    -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+
 fi
   
 
@@ -313,7 +323,7 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC} 
 
              # Flush corresponding mangle rule
-             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT}
+             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface}
 
              # Clean out the route table
              check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
@@ -329,8 +339,15 @@ for floater in ${BIGIP_FLOATERS[@]}; do
 
 
              # Now save  mark all packets 
-             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT}
+             check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface}
 
+         # Disable reverse path filtering 
+         echo 0 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
+         echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
+
+         # All ip forwarding 
+
+         echo 1 > /proc/sys/net/ipv4/ip_forward
            fi
 
            # Bump your counters
@@ -347,7 +364,7 @@ for floater in ${BIGIP_FLOATERS[@]}; do
 start()
 {
  route_manager add && \
- check_mangle && \
+ check_mangle add && \
  check_save_mark add && \
  ip route flush cache &&
  service iptables save
@@ -355,6 +372,7 @@ start()
 
 stop(){
  route_manager del && \
+ check_mangle del && \
  check_save_mark del && \
  ip route flush cache
 }
