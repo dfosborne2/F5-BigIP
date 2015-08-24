@@ -1,4 +1,4 @@
-i#!/bin/bash
+#!/bin/bash
 #
 # chkconfig: 345 90 50
 # name: bigip-gw
@@ -140,11 +140,12 @@ fi
 
 check_layer2_mac_rule()
 {
-# Four input variables required
+# Five input variables required
 # $1 = action (add -or  del)
 # $2 = mac masquerade address
 # $3 = comment for rule
 # $4 = fwmark integer
+# $5 = interface
 
 # If action to add, then check for it and add if missing.
 # else delete the rule when action is "not add"
@@ -170,10 +171,10 @@ check_rule()
 {
 # 4 input variables required
 #
-# $1 : The action (add -or- del)
-# $2 : The route metric (priority)
-# $3 : The connmark value (fwmark 0x<int>)
-# $4 : The table name as given in /etc/iproute2/rt_tables
+# $1 = The action (add -or- del)
+# $2 = The route metric (priority)
+# $3 = The connmark value (fwmark 0x<int>)
+# $4 = The table name as given in /etc/iproute2/rt_tables
 
 # Check if the rule exists, act if not
 if [ ${1} == "add" ]; then
@@ -190,12 +191,12 @@ check_route()
 {
 #  5 input variables require
 #
-# $1 : The action (add -or- del)
-# $2 : The table name as given in /etc/iproute2/rt_tables
-# $3 : The gateway ip address you wish to use
-# $4 : The interface to which you wish to apply the route
-# $5 : The route metric (priority)
-# $6 : The ip address 
+# $1 = The action (add -or- del)
+# $2 = The table name as given in /etc/iproute2/rt_tables
+# $3 = The gateway ip address you wish to use
+# $4 = The interface to which you wish to apply the route
+# $5 = The route metric (priority)
+# $6 = The ip address 
 
 
 if [ ${1} == "add" ]; then
@@ -214,7 +215,7 @@ check_save_mark()
 {
 # 1 input variable require
 #
-# $1 : The action (add -or- del)
+# $1 = The action (add -or- del)
 
 # Save your packet mark.
 if [ ${1} == "add" ]; then
@@ -232,9 +233,10 @@ check_rt_table()
 {
 #  3 input variables required
 #
-# $1 : The action (add -or- del)
-# $2 : The table metric
-# $3 : The table name
+# $1 = The action (add -or- del)
+# $2 = The table metric
+# $3 = The table name
+
 if [ ${1} == "add" ]; then
   if ! (grep "${2} ${3}" ${RT_TABLES} > /dev/null); then
     echo "${2} ${3}" >> ${RT_TABLES}
@@ -341,13 +343,9 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              # Now save  mark all packets 
              check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface}
 
-         # Disable reverse path filtering 
-         echo 0 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
-         echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
+             # Disable reverse path filtering for the interface
+             echo 2 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
 
-         # All ip forwarding 
-
-         echo 1 > /proc/sys/net/ipv4/ip_forward
            fi
 
            # Bump your counters
