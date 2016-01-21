@@ -71,7 +71,17 @@
 # The RT_TABLES sysconfig entry must be /etc/iproute2/rt_tables. No
 # need to change/modify it for a typical usage of this script.
 
+#############################################
+#### SAMPLE /etc/sysconfig/bigip-gw #########
 
+# Vars for bigip-gw init script
+#IFACE_SELECTION="all"
+#BIGIP_FLOATERS=(10.134.10.214/26 10.134.25.102/26)
+#MAC_MASQUERADE="00:50:56:xx:xx:xx"
+#RT_TABLES=/etc/iproute2/rt_tables
+
+#### END SAMPLE /etc/sysconfig/bigip-gw #####
+#############################################
 # Lets get started.
 
 # Setup yer PATH!
