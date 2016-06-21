@@ -77,7 +77,7 @@
 # Vars for bigip-gw init script
 #IFACE_SELECTION="all"
 #BIGIP_FLOATERS=(10.134.10.214/26 10.134.25.102/26)
-#MAC_MASQUERADE="00:50:56:xx:xx:xx"
+#MAC_MASQUERADE="00:50:56:00:01:02"
 #RT_TABLES=/etc/iproute2/rt_tables
 
 #### END SAMPLE /etc/sysconfig/bigip-gw #####
