@@ -47,7 +47,7 @@
 # to specify which interface you want to apply the bigip as a 
 # conditional gateway:
 #
-#  /etc/sysconfig/bigip-gw
+#  /etc/sysconfig/bigip-gw-config
 #
 # Valid "IFACE_SELECTION" are 
 #  all ifaces: "all"
@@ -58,30 +58,64 @@
 #                the FQDN of the host.
 #
 # By default, the "all" option is selected. Should a 
-# /etc/sysconfig/bigip-gw not exist.
+# /etc/sysconfig/bigip-gw-config not exist.
 # 
 # ADDITIONAL sysconfig vars::
 #
-# Currently, BIGIP_FLOATERS and MAC_MASQUERADE are the only 
-# variables you'll need to setup. 
+# BIGIP_FLOATERS - array format representing the CIDR 
+#                  notation of your floating addresses in your BigIP
+#                  in your BigIP standalone/ HA Pair (x.x.x.x/yy)
+#
+# BIGIP_SELFIPS - array format representing the CIDR notation
+#                 of all of your self ips in your BigIP
+#                 standalone/HA Pair  (x.x.x.x/yy)
+#
+# BIGIP_MAC_ADDRS - array format of all the MAC addresses in
+#                   your BigIP standalone/HA Pair
+#
+# HA_ENABLED - A bit different here. Bash booleans dont work like true|false booleans. Thus
+#              you need a function returning a value. 
+#              true -  { return 0;} 
+#              false - ( return 1;}
+#
+# *** NOTE ***
+# Im most cases, if HA_ENABLED is false, the BIGIP_FLOATERS entry should be an empty array.
+# **END NOTE**
+#
+#
+# Sample HA_ENABLED entry:
+# HA_ENABLED() {return 0;}  # true - thus, BigIP is a HA Pair
+#   -or-
+# HA_ENABLED() {return 1;}  # false - thus, BigIP is a standalone
+# MAC_MASQUERADE - obsoleted (b/c it sucked.)
+#
+# RT_TABLES - entry must be /etc/iproute2/rt_tables. No
+# need to change/modify it for a typical usage of this script.
+#
 #
 # By default, the vars are are assumed to be derived 
 # by chef - tailor to your needs.
+########################
+# SAMPLE SYSCONFIG FILE (to live at /etc/sysconfig/bigip-gw-config)
 #
-# The RT_TABLES sysconfig entry must be /etc/iproute2/rt_tables. No
-# need to change/modify it for a typical usage of this script.
-
-#############################################
-#### SAMPLE /etc/sysconfig/bigip-gw #########
-
-# Vars for bigip-gw init script
 #IFACE_SELECTION="all"
-#BIGIP_FLOATERS=(10.134.10.214/26 10.134.25.102/26)
-#MAC_MASQUERADE="00:50:56:00:01:02"
+#BIGIP_FLOATERS=(10.125.44.70/28 10.124.124.70/26 10.124.115.102/24 \
+#                10.124.80.170/26 10.125.19.52/24 10.125.44.52/26 \
+#                10.125.198.198/26)
+#BIGIP_SELFIPS=(10.124.124.68/28-10.124.124.69/28 10.124.115.100/24-10.124.115.101/24 \
+#               10.124.80.168/26-10.124.80.169/26 10.125.19.50/24-10.125.19.51/24 \
+#               10.125.44.50/26-10.125.44.51/26 10.125.198.196/26-10.125.198.197/26)
+#BIGIP_MAC_ADDRS=(00:25:28:a2:0a:e0 00:25:28:a2:5f:4b 00:25:28:a2:73:6a \
+#                 00:25:28:af:99:97 00:25:28:a2:f4:4d \
+#                 00:25:28:a2:12:53 00:25:28:a2:49:80 00:25:28:a2:5c:a0 \
+#                 00:25:28:a2:7a:84 00:25:28:a2:9b:cf 02:50:56:99:6d:98)
+#HA_ENABLED{} {return 0;}  # BigIP is a HA Pair
 #RT_TABLES=/etc/iproute2/rt_tables
+#
+# END SAMPLE SYSCONFIG 
+####################
 
-#### END SAMPLE /etc/sysconfig/bigip-gw #####
-#############################################
+
 # Lets get started.
 
 # Setup yer PATH!
@@ -92,7 +126,7 @@ export PATH
 . /etc/rc.d/init.d/functions
 
 # source sysconfig file
-SYS_CONFIG="/etc/sysconfig/bigip-gw"
+SYS_CONFIG="/etc/sysconfig/bigip-gw-config"
 
 if [ -f ${SYS_CONFIG} ]; then
   source ${SYS_CONFIG}
@@ -102,14 +136,15 @@ else
 fi
 
 
-
+# Any vars here
+BIGIP_GW_STRING="bigip_gw_is"
 # Support functions here
 
 get_bcast()
 {
 #  1 input variable required
 #
-# $1 : Primary IP address of the interface under current
+# $1 = Primary IP address of the interface under current
 #      analysis
  
 ipcalc -b ${1} |sed "s|BROADCAST=||g"
@@ -150,26 +185,36 @@ fi
 
 check_layer2_mac_rule()
 {
-# Five input variables required
+# Six input variables required
+#
 # $1 = action (add -or  del)
 # $2 = mac masquerade address
 # $3 = comment for rule
 # $4 = fwmark integer
 # $5 = interface
+# $6 = src_ip range
 
 # If action to add, then check for it and add if missing.
 # else delete the rule when action is "not add"
 if [ ${1} == "add" ]; then
   if ! (iptables -t mangle -L INPUT -v |grep -i ${2}|grep "${3}"  |grep "0x${4}" > /dev/null); then
 
+    # Uncomment the logging rule if you need to troubleshoot.
+    #iptables -t mangle -A INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED  \
+    #-m mac --mac-source ${2} -m iprange ! --src-range ${6} -m comment --comment "${3}" -j LOG
+
     iptables -t mangle -A INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED \
-    -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+    -m mac --mac-source ${2} -m iprange ! --src-range ${6} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
 
   fi
 else
 
+    # Uncomment the logging rule if you need to troubleshoot.
+    #iptables -t mangle -D INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED  \
+    #-m mac --mac-source ${2} -m iprange ! --src-range ${6} -m comment --comment "${3}" -j LOG
+
     iptables -t mangle -D INPUT -i ${5} -m conntrack --ctstate NEW,ESTABLISHED,RELATED \
-    -m mac --mac-source ${2} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
+    -m mac --mac-source ${2} -m iprange ! --src-range ${6} -m comment --comment "${3}" -j MARK --set-mark 0x${4}
 
 fi
   
@@ -177,9 +222,10 @@ fi
 }
 
 
+echo $IP_SRC_ARG
 check_rule()
 {
-# 4 input variables required
+# Four input variables required
 #
 # $1 = The action (add -or- del)
 # $2 = The route metric (priority)
@@ -199,15 +245,15 @@ fi
 
 check_route()
 {
-#  5 input variables require
+# Five input variables require
 #
 # $1 = The action (add -or- del)
 # $2 = The table name as given in /etc/iproute2/rt_tables
 # $3 = The gateway ip address you wish to use
 # $4 = The interface to which you wish to apply the route
 # $5 = The route metric (priority)
-# $6 = The ip address 
 
+# If action is to add, then check for and add route if need. Delete otherwise.
 
 if [ ${1} == "add" ]; then
   if ! (ip route show table 0 |grep ${2}|grep ${3} |grep ${4} > /dev/null); then
@@ -227,7 +273,8 @@ check_save_mark()
 #
 # $1 = The action (add -or- del)
 
-# Save your packet mark.
+# Save your packet mark...or delete it.
+
 if [ ${1} == "add" ]; then
   if ! (iptables -L INPUT -t mangle -v |grep "CONNMARK save" > /dev/null); then
     iptables -t mangle -A INPUT -j CONNMARK --save-mark
@@ -265,7 +312,7 @@ route_manager()
 {
 # One input variable require
 # $1 =  "add" or "del" 
-# Dont worry we manage via stardd or stop 
+# Dont worry we manage via start or stop 
 
 ACTION=${1}
 
@@ -277,10 +324,11 @@ ACTION=${1}
 ROUTE_METRIC=100
 MARK_COUNT=1
 TABLE_METRIC=201
+FOUND_COUNT=0
 
 
 # Get all the ifaces on the box
-# /etc/sysconfig/bigip-gw is 
+# /etc/sysconfig/bigip-gw-config is 
 # sourced at the top of the file.
 # Valid "IFACE_SELECTION" are 
 #  "all" 
@@ -290,11 +338,12 @@ TABLE_METRIC=201
 #  ""  (blank) - whice will use the iface which corresponds to
 #                the FQDN of the host.
 
-# Also configured in /etc/sysconfig/bigip-gw are
+# Also configured in /etc/sysconfig/bigip-gw-config are
 # BIGIP_FLOATERS and MAC_MASQUERADE. 
 # These two must configured and populated or the
 # the script will bail.
 
+# Build the array of interfaces to inspect
 
 if [ "${IFACE_SELECTION}" == "all" ]; then
   IFACE_ARRAY=()
@@ -304,12 +353,36 @@ if [ "${IFACE_SELECTION}" == "all" ]; then
     done
 
 elif [ -z "${IFACE_SELECTION}" ]; then
-  MY_IP=$(dig ${HOSTNAME} +short)
+  MY_IP=$(hostname -i)
   IFACE_ARRAY=($(ip -o addr |grep ${MY_IP} |awk '{print $2}'))
    
 else
   IFACE_ARRAY=($(ip -o addr |egrep ${IFACE_SELECTION} |awk '{print $2}'))
 fi
+
+# Iterate through floater addresses 
+# For every address on the host, compare its broadcast
+# with the broadcast of the iterated floater
+
+# First check if HA_ENABLED feature/function exists. 
+# and, if so, determine if the BigIP is a HA Pair or not.
+# If so continue. 
+# If not (and FLOATERS array should be an empty array), then
+# set the BIGIP_FLOATERS to the BIGIP_SELFIPS array.
+# If HA_ENABLED feture/function does not exist, carry on without out.
+
+if [ -n "$(type -t HA_ENABLED)" ] && [ "$(type -t HA_ENABLED)" = function ]; then
+  if $(eval HA_ENABLED) ; then
+    echo "BigIP is a HA Pair. Inspecting configured floaters/selfIPs now..."
+    echo ""
+  else
+    echo "BigIP is a Standalone Unit, setting BIGIP_FLOATERS to BIGIP_SELFIPS"
+    unset BIGIP_FLOATERS
+    BIGIP_FLOATERS=("${BIGIP_SELFIPS[@]}")
+    echo ""
+  fi
+fi
+
 for floater in ${BIGIP_FLOATERS[@]}; do
    for iface in ${IFACE_ARRAY[@]}; do
        APPLIED=no
@@ -327,24 +400,39 @@ for floater in ${BIGIP_FLOATERS[@]}; do
              HOST_BCAST=$(get_bcast ${ip_addr})
              if [ $HOST_BCAST == $BIGIP_BCAST ]; then
                echo "Action: ${ACTION} rules/routes  $floater is the BIG-IP transit gateway for local address: ${ip_addr}."
+               echo ""
                APPLIED=yes
+               FOUND_COUNT+=1
+
              fi
            # If we match an iface's address broadcast to a floater's broadcast, let's
-           # build or tear domw some rules/routes
+           # build or tear down some rules/routes
  
            if [ $APPLIED == "yes" ]; then
- 
+
+                    
              # Set the big ip floater as the gateway in this instance.
              BIGIP_GW=$(echo ${floater}|sed "s|/.*$||g")
-             BIGIP_GW_NAME="bigip_gw_$(echo ${BIGIP_GW} |sed 's|\.|-|g')"
+             BIGIP_GW_NAME="${BIGIP_GW_STRING}_$(echo ${BIGIP_GW} |sed 's|\.|-|g')"
  
              if [ ${ACTION} == "del" ]; then
                # Delete rule and route
                check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
                check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC}
- 
-               # Flush corresponding mangle rule
-               check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface}
+
+               # Now clear out the corresponding iptables entries
+               for mac in ${BIGIP_MAC_ADDRS[@]}; do
+                 for s in ${BIGIP_SELFIPS[@]}; do
+                   get_one_selfip=$(echo ${s} |awk -F "-" '{print $1}')
+                   SELFIP_BCAST=$(get_bcast ${get_one_selfip})
+
+                     if [ $HOST_BCAST == $SELFIP_BCAST ]; then
+                       src_range=$(echo ${s}|sed -e "s|/.*-|-|g" -e "s|/.*$||g")
+                       check_layer2_mac_rule ${ACTION} "${mac}" "Rule: ${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface} ${src_range}
+                     fi
+                   done
+                 done
+
  
                # Clean out the route table
                check_rt_table ${ACTION} ${TABLE_METRIC} ${BIGIP_GW_NAME}
@@ -358,9 +446,19 @@ for floater in ${BIGIP_FLOATERS[@]}; do
                check_route ${ACTION}  ${BIGIP_GW_NAME} ${BIGIP_GW} ${iface} ${ROUTE_METRIC}
                check_rule ${ACTION} ${ROUTE_METRIC} ${MARK_COUNT} ${BIGIP_GW_NAME}
  
- 
-               # Now save  mark all packets 
-               check_layer2_mac_rule ${ACTION} "${MAC_MASQUERADE}" "Rule:${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface}
+               # Set corresponding mangle rule
+               for mac in ${BIGIP_MAC_ADDRS[@]}; do
+                 for s in ${BIGIP_SELFIPS[@]}; do
+                   get_one_selfip=$(echo ${s} |awk -F "-" '{print $1}')
+                   SELFIP_BCAST=$(get_bcast ${get_one_selfip})
+            
+                     if [ $HOST_BCAST == $SELFIP_BCAST ]; then
+                       src_range=$(echo ${s}|sed -e "s|/.*-|-|g" -e "s|/.*$||g")
+                       check_layer2_mac_rule ${ACTION} "${mac}" "Rule: ${BIGIP_GW_NAME}" ${MARK_COUNT} ${iface} ${src_range}
+                     fi
+                 done
+               done
+
  
                # Disable reverse path filtering for the interface
                echo 2 > /proc/sys/net/ipv4/conf/${iface}/rp_filter
@@ -376,7 +474,11 @@ for floater in ${BIGIP_FLOATERS[@]}; do
       fi
    done
 done
-
+if [ ${FOUND_COUNT} -eq 0 ] && [ ${ACTION} = "add" ]; then
+  echo "This host does live within a broadcast range of current BigIP selfIPs"
+  # Exit 0 since this is an OK exit.
+  exit 0
+fi
 }
 
 
@@ -389,12 +491,44 @@ start()
  service iptables save
 }
 
-stop(){
+stop()
+{
  route_manager del && \
  check_mangle del && \
  check_save_mark del && \
  ip route flush cache
 }
+
+status()
+{
+clear
+# Sleep so user realizes the screen is 
+# about to change.
+sleep .5
+echo -ne "\n\n -+-+-+-+-+-+- ${RT_TABLES} entries -+-+-+-+-+-+- \n\n"
+grep ${BIGIP_GW_STRING} ${RT_TABLES}
+
+echo -ne "\n\n -+-+-+-+-+-+- ip routes corresponding to entries in ${RT_TABLES} -+-+-+-+-+-+- \n\n"
+ROUTES_ARRAY=("$(grep ${BIGIP_GW_STRING} ${RT_TABLES}|awk '{print $1}' |sed -e :a -e '/$/N; s/\n/ /; ta')")
+for x in ${ROUTES_ARRAY[@]}
+  do
+    ip route show table ${x}
+  done
+
+echo -ne "\n -+-+-+-+-+-+- ip rules based on routing metrics -+-+-+-+-+-+- \n\n"
+ip rule show |grep ${BIGIP_GW_STRING}
+
+
+echo -ne "\n -+-+-+-+-+-+- iptables mangle configuration -+-+-+-+-+-+- \n\n"
+iptables -L -t mangle -v
+
+echo -ne "\n -+-+-+-+-+-+- Some final details to assist with information just provided -+-+-+-+-+-+- \n"
+
+echo -ne "\n\t*** The most important thing to understand is that if the above data is ***\n"
+echo -ne "\t*** seemingly empty, chances are that this script has not been started. ***\n"
+echo -ne "\t*** Should there be any doubt, and you need it up, issue a restart.     ***\n\n\n"
+}
+
 
 
 
@@ -409,7 +543,11 @@ case "$1" in
         stop
         start
         ;;
+  status)
+        status
+        ;;
   *)
-        echo $"Usage: $0 {start|stop|restart}"
+        echo $"Usage: $0 {start|stop|restart|status}"
         RETVAL=1
 esac
+
