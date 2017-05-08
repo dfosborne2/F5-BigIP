@@ -1,0 +1,26 @@
+# Vars for bigip-gw init script
+# !! ATTENTION HUMAN : !!
+# Config is managed by Chef. 
+# Local changes are fleeting.
+#
+IFACE_SELECTION="all"
+BIGIP_SELFIPS=(10.66.56.130/28-10.66.56.131/28 10.64.57.131/24-10.64.57.132/24 10.67.28.200/25-10.67.28.201/25 10.64.215.130/26-10.64.215.131/26 10.64.196.211/26-10.64.196.212/26)
+BIGIP_FLOATERS=(10.66.56.132/28 10.64.57.130/24 10.67.28.202/25 10.64.215.132/26 10.64.196.210/26)
+BIGIP_MAC_ADDRS=(00:0c:29:XX:63:5e 00:XX:29:XX:XX:68 00:XX:XX:63:XX 00:ZZ:T0:Pa:fc:XX 00:0c:29:78:UB:40 0L:ED:ZE:PP:EL:IN)
+RT_TABLES=/etc/iproute2/rt_tables
+######
+# HA_ENABLED - A bit different here. Bash booleans dont work like true|false booleans. Thus
+#              you need a function returning a value. 
+#              true -  { return 0;} 
+#              false - ( return 1;}
+# *** NOTE ***
+# Im most cases, if HA_ENABLED is false, the BIGIP_FLOATERS entry should be an empty array.
+# **END NOTE**
+#
+# Sample HA_ENABLED entry:
+# HA_ENABLED() {return 0;}  # BigIP is a HA Pair
+#   -or-
+# HA_ENABLED() {return 1;}  # BigIP is a standalone
+######
+HA_ENABLED() { return 0;}  # true - BigIP is a HA Pair
+
