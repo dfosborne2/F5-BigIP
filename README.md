@@ -11,7 +11,7 @@ bigip-gw: The SNAT killer! RC script designed to use a native interface to route
 
 2.) SelfIPs must be in consecutive order. ex: 10.10.10.20-10.10.10.21
 
-3.) See https://devcentral.f5.com/codeshare/kill-snat-automap for more detail.
+3.) See https://community.f5.com/kb/codeshare/kill-snat-automap/274886 for more detail.
 
 
 bigip-gw-config - The sysconfig file for bigip-gw. This is a sampple config, please adjust to your needs.
